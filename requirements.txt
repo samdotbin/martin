@@ -1,0 +1,14 @@
+torch
+numpy
+pandas
+scikit-learn
+scipy
+pytest
+
+# Windows only — talks to a running MT5 terminal via its native API.
+# Needed only for scripts/download_mt5_data.py, not for the rest of the pipeline.
+MetaTrader5; platform_system == "Windows"
+
+# Only needed for dashboard/ (results viewer) — not the training/eval pipeline.
+streamlit
+altair

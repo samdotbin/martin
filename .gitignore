@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.claude/
+local_training_results/
+.streamlit/secrets.toml
+*.zip
+
+# 182MB of historical CSVs, static and unchanging -- doesn't belong in git
+# history. Distributed separately via the zip uploaded to each contributor's
+# Drive (see colab_train.ipynb's setup instructions), not through this repo.
+data/raw/*.csv
