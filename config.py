@@ -151,4 +151,4 @@ INTERNAL_SPLIT = (0.8, 0.1, 0.1)  # train / val / test within a fold's training 
 # ---------------------------------------------------------------------------
 # Reproducibility (§16)
 # ---------------------------------------------------------------------------
-SEEDS = [13, 42, 7]              # small number of seeds per config, per §16
+SEEDS = [13, 42, 7, 99]           # small number of seeds per config, per §16 -- freely editable, any distinct ints work

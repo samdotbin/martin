@@ -11,7 +11,7 @@ SHARED_DRIVE_URL = "https://drive.google.com/drive/folders/1KKSoBLl8CurDqFtUz3UM
 
 st.markdown(
     f"This project trains a multi-pair FX trading policy via a walk-forward "
-    f"sweep — 12 folds x 3 seeds, 36 fold/seed combos total, each needing "
+    f"sweep — 12 folds x 4 seeds, 48 fold/seed combos total, each needing "
     f"real GPU time. Training is split into shards contributors can run in "
     f"parallel on their own Colab (free or paid) — the more GPUs helping, "
     f"the faster the sweep finishes."
