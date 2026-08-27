@@ -60,11 +60,20 @@ def _list_claims(shared_folder: str, total_shards: int) -> dict:
     return out
 
 
-def claim(shared_folder: str, total_shards: int, n_wanted: int, name: str) -> list:
+def claim(shared_folder: str, total_shards: int, n_wanted: int, name: str, preferred: list = None) -> list:
     """Returns a sorted list of shard indices assigned to `name`. Idempotent
     across re-runs: if `name` already has claims (e.g. re-running this cell,
     or resuming after a disconnect), those are kept and only the shortfall
-    (if any) is claimed fresh."""
+    (if any) is claimed fresh.
+
+    preferred (optional): specific indices to try FIRST, e.g. a contributor
+    looked at the dashboard, saw shards 40-43 sitting at "Not started," and
+    wants those specifically instead of whatever the automatic scan would
+    pick. Still goes through the exact same exclusive-create claim below --
+    a preference is a request, not a bypass, so it can never collide with
+    someone else's claim. Any preferred indices that are already taken (or
+    out of range) are silently skipped in favor of the next preferred one,
+    then the normal any-free-index scan covers whatever's still short."""
     if not name or not name.strip():
         raise ValueError("name must be a non-empty, identifiable string (e.g. your first name)")
 
@@ -74,8 +83,11 @@ def claim(shared_folder: str, total_shards: int, n_wanted: int, name: str) -> li
     if shortfall <= 0:
         return mine[:n_wanted]
 
+    ordered = [i for i in (preferred or []) if 0 <= i < total_shards]
+    ordered += [i for i in range(total_shards) if i not in ordered]
+
     newly_claimed = []
-    for i in (idx for idx in range(total_shards) if idx not in claims):
+    for i in (idx for idx in ordered if idx not in claims and idx not in mine):
         if shortfall <= 0:
             break
         path = _claim_path(shared_folder, i)

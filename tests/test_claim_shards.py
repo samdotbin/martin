@@ -111,6 +111,30 @@ def test_concurrent_claims_never_overlap(tmp_path):
     )
 
 
+def test_claim_preferred_indices_honored_when_free(tmp_path):
+    shards = claim_shards.claim(str(tmp_path), total_shards=48, n_wanted=4, name="alice",
+                                 preferred=[40, 41, 42, 43])
+    assert shards == [40, 41, 42, 43]
+
+
+def test_claim_preferred_falls_back_when_taken(tmp_path):
+    claim_shards.claim(str(tmp_path), total_shards=48, n_wanted=1, name="bob", preferred=[40])
+    # alice prefers 40-43, but 40 is bob's -- she should get 41-43 plus one
+    # more from the normal scan, not fail or collide with bob.
+    shards = claim_shards.claim(str(tmp_path), total_shards=48, n_wanted=4, name="alice",
+                                 preferred=[40, 41, 42, 43])
+    assert 40 not in shards
+    assert {41, 42, 43}.issubset(set(shards))
+    assert len(shards) == 4
+
+
+def test_claim_preferred_out_of_range_ignored(tmp_path):
+    shards = claim_shards.claim(str(tmp_path), total_shards=4, n_wanted=2, name="alice",
+                                 preferred=[99, -1, 2])
+    assert 2 in shards
+    assert len(shards) == 2
+
+
 def test_gpu_status_reports_claims(tmp_path):
     claim_shards.claim(str(tmp_path), total_shards=48, n_wanted=4, name="alice")
     status = claim_shards.gpu_status(str(tmp_path), total_shards=48)
