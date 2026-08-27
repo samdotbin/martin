@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
+
 import pandas as pd
 import streamlit as st
 
-from lib import get_training_progress, load_gpu_status
+from lib import get_training_progress, load_contributor_heartbeats
 
 GITHUB_REPO = "samdotbin/martin"
 COLAB_URL = f"https://colab.research.google.com/github/{GITHUB_REPO}/blob/master/colab_train.ipynb"
@@ -15,15 +17,16 @@ st.markdown(
     f"the faster the sweep finishes."
 )
 
+heartbeats = load_contributor_heartbeats()
+
 with st.container(horizontal=True):
     df = get_training_progress()
     total = len(df)
     done = int((df["Status"] == "Done").sum()) if total else 0
-    status = load_gpu_status()
-    n_online = sum(1 for c in status["contributors"] if c["online"])
+    n_online = sum(1 for c in heartbeats if c["online"])
     st.metric("Sweep progress", f"{done}/{total}" if total else "-", border=True)
     st.metric("Contributors online now", n_online, border=True)
-    st.metric("Total contributors", len(status["contributors"]), border=True)
+    st.metric("Total contributors", len(heartbeats), border=True)
 
 st.divider()
 st.subheader("How to contribute your GPU")
@@ -50,22 +53,27 @@ st.markdown(
 Free Colab GPUs disconnect after a while regardless of what you do — normal,
 not something to fix. Just re-run the notebook (`Runtime -> Run all`) when
 you're back — same generated name, same shards.
+
+New here? You won't show up below until your notebook's background
+auto-push cell has run at least once (every 5 minutes) — give it a few
+minutes after `Run all`.
 """
 )
 
 st.divider()
 st.subheader("Who's contributing")
-contributors = status["contributors"]
-if not contributors:
+if not heartbeats:
     st.caption("No contributors recorded yet — be the first.")
 else:
+    now = datetime.now(timezone.utc)
     rows = []
-    for c in contributors:
+    for c in sorted(heartbeats, key=lambda c: c["last_seen"], reverse=True):
+        mins_ago = (now - datetime.fromisoformat(c["last_seen"])).total_seconds() / 60
         rows.append({
             "Name": c["name"],
             "Status": "Online" if c["online"] else "Offline",
             "Shards": ", ".join(str(s) for s in c["shards"]),
-            "Running for": f"{c['duration_minutes']:.0f} min" if c["duration_minutes"] is not None else "-",
+            "Last seen": "just now" if mins_ago < 1 else f"{mins_ago:.0f} min ago",
         })
     display_df = pd.DataFrame(rows)
 
@@ -74,8 +82,6 @@ else:
         return [color] * len(row)
 
     st.dataframe(display_df.style.apply(_status_color, axis=1), hide_index=True, width="stretch")
-    if status["generated_at"]:
-        st.caption(f"As of the last publish: {status['generated_at']}")
 
 st.divider()
 st.caption(f"Code: [github.com/{GITHUB_REPO}](https://github.com/{GITHUB_REPO})")

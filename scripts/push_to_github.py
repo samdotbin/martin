@@ -17,8 +17,10 @@ holding it with people you'd trust with that.
 import base64
 import json
 import os
+import tempfile
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 
 def _api_request(method, url, token, payload=None):
@@ -91,6 +93,29 @@ def push_all(repo: str, token: str, name: str, shared_folder: str, my_shards: li
             continue
         all_pushed += push_shard_dir(repo, token, name, shard_dir, idx, branch)
     return all_pushed
+
+
+def push_heartbeat(repo: str, token: str, name: str, my_shards: list, branch: str = "master") -> bool:
+    """Pushes contributions/{name}/heartbeat.json — name, claimed shards,
+    and a UTC timestamp. This is what lets the HOSTED dashboard show who's
+    online right now with zero owner intervention: the owner's machine
+    doesn't need Drive access or to run anything, since the dashboard reads
+    this file straight out of the (already-cloned) repo like everything
+    else in contributions/. Call this on the same cadence as push_all() —
+    a stale last_seen just means the dashboard will show that contributor
+    as offline after a few missed cycles, nothing more."""
+    payload = {
+        "name": name,
+        "shards": list(my_shards),
+        "last_seen": datetime.now(timezone.utc).isoformat(),
+    }
+    fd, tmp_path = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f)
+        return push_file(repo, token, f"contributions/{name}/heartbeat.json", tmp_path, branch)
+    finally:
+        os.remove(tmp_path)
 
 
 def read_shared_token(shared_folder: str, filename: str = "github_token.txt") -> str:

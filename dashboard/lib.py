@@ -13,6 +13,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -52,6 +53,43 @@ def load_gpu_status():
         return {"generated_at": None, "contributors": []}
     with open(path) as f:
         return json.load(f)
+
+
+@st.cache_data(ttl="20s", show_spinner=False)
+def load_contributor_heartbeats(online_window_minutes: int = 12) -> list:
+    """Reads contributions/{name}/heartbeat.json directly out of the cloned
+    repo — each contributor's Colab session pushes its own (see
+    scripts/push_to_github.py::push_heartbeat(), called from the auto-push
+    cell on the same 5-minute cadence as the checkpoint push). Unlike
+    load_gpu_status(), this needs NO owner-side step (no publish_results.py
+    run from a machine with Drive access) — the hosted dashboard sees
+    contributors the moment their session's first heartbeat lands.
+    online_window_minutes should stay a bit above the push cadence so one
+    missed cycle (a slow GitHub API call, a brief disconnect) doesn't flip
+    someone to 'offline' prematurely."""
+    contributions_dir = os.path.join(config.PROJECT_ROOT, "contributions")
+    if not os.path.isdir(contributions_dir):
+        return []
+    now = datetime.now(timezone.utc)
+    out = []
+    for name in os.listdir(contributions_dir):
+        hb_path = os.path.join(contributions_dir, name, "heartbeat.json")
+        if not os.path.isfile(hb_path):
+            continue
+        try:
+            with open(hb_path) as f:
+                hb = json.load(f)
+            last_seen = datetime.fromisoformat(hb["last_seen"])
+            online = (now - last_seen) <= timedelta(minutes=online_window_minutes)
+            out.append({
+                "name": hb.get("name", name),
+                "shards": hb.get("shards", []),
+                "last_seen": hb["last_seen"],
+                "online": online,
+            })
+        except (json.JSONDecodeError, KeyError, ValueError):
+            continue  # malformed/partial heartbeat file (e.g. a push caught mid-write) — skip, not fatal
+    return out
 
 
 @st.cache_data(ttl="30s", show_spinner=False)
