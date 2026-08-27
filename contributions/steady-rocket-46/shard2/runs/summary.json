@@ -2,7 +2,7 @@
   {
     "fold_id": 0,
     "seed": 7,
-    "best_val_sharpe": 3.6418358509574826,
+    "best_val_sharpe": null,
     "test_metrics": {
       "sharpe": 1.8361052291030215,
       "win_rate": 0.02072538860103627,
