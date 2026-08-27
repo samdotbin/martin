@@ -87,10 +87,40 @@ def load_contributor_heartbeats(online_window_minutes: int = 4) -> list:
                 "shards": hb.get("shards", []),
                 "last_seen": hb["last_seen"],
                 "online": online,
+                "shard_status": hb.get("shard_status", []),
+                "session_started_at": hb.get("session_started_at"),
             })
         except (json.JSONDecodeError, KeyError, ValueError):
             continue  # malformed/partial heartbeat file (e.g. a push caught mid-write) — skip, not fatal
     return out
+
+
+@st.cache_data(ttl="20s", show_spinner=False)
+def get_shard_activity_table() -> pd.DataFrame:
+    """One row per shard, across every contributor's heartbeat — answers
+    "who is training what, since when, is it alive" directly, instead of
+    waiting on the slower checkpoint push (which only reflects a combo
+    once its first mid-fold checkpoint has actually been written AND
+    pushed). Reads shard_status straight from heartbeat.json, so this is
+    only as fresh as the last heartbeat (every 60s) rather than the
+    5-minute checkpoint cadence."""
+    columns = ["Contributor", "Shard", "Fold", "Seed", "Status", "Last log line", "Since"]
+    heartbeats = load_contributor_heartbeats()
+    rows = []
+    for hb in heartbeats:
+        for s in hb.get("shard_status", []):
+            rows.append({
+                "Contributor": hb["name"],
+                "Shard": s.get("shard"),
+                "Fold": s.get("fold_id") if s.get("fold_id") is not None else "-",
+                "Seed": s.get("seed") if s.get("seed") is not None else "-",
+                "Status": s.get("status", "-"),
+                "Last log line": s.get("last_log") or "-",
+                "Since": hb.get("session_started_at") or "-",
+            })
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows).sort_values(["Contributor", "Shard"]).reset_index(drop=True)
 
 
 @st.cache_data(ttl="30s", show_spinner=False)

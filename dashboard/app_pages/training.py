@@ -7,6 +7,7 @@ import streamlit as st
 
 from lib import (
     config,
+    get_shard_activity_table,
     get_training_config_summary,
     get_training_progress,
     list_checkpoint_files,
@@ -58,6 +59,40 @@ def live_progress():
 
 
 live_progress()
+
+st.divider()
+
+
+@st.fragment(run_every="20s")
+def who_is_training_what():
+    """Per-shard status straight from each contributor's own heartbeat —
+    who owns which shard, what (fold, seed) it's on, whether it's alive or
+    exited (and with what code), and since when. Updates on the
+    heartbeat's ~60s cadence, much faster than the sweep table above,
+    which only reflects a combo once its first mid-fold checkpoint has
+    actually been pushed (every 5 min at the earliest)."""
+    st.subheader("Who's training what")
+    table = get_shard_activity_table()
+    if table.empty:
+        st.caption("No contributor sessions reporting yet — see the Contribute tab.")
+        return
+
+    def _status_color(row):
+        status = str(row["Status"])
+        if status == "running":
+            color = "background-color: rgba(38, 166, 154, 0.25)"
+        elif status.startswith("exited (code 0)"):
+            color = "background-color: rgba(120, 120, 120, 0.15)"
+        elif status.startswith("exited"):
+            color = "background-color: rgba(255, 82, 82, 0.30)"
+        else:
+            color = ""
+        return [color] * len(row)
+
+    st.dataframe(table.style.apply(_status_color, axis=1), hide_index=True, width="stretch")
+
+
+who_is_training_what()
 
 st.divider()
 st.subheader("Local training")

@@ -103,7 +103,8 @@ def push_all(repo: str, token: str, name: str, shared_folder: str, my_shards: li
     return all_pushed
 
 
-def push_heartbeat(repo: str, token: str, name: str, my_shards: list, branch: str = "master") -> bool:
+def push_heartbeat(repo: str, token: str, name: str, my_shards: list, branch: str = "master",
+                    shard_status: list = None, session_started_at: str = None) -> bool:
     """Pushes contributions/{name}/heartbeat.json — name, claimed shards,
     and a UTC timestamp. This is what lets the HOSTED dashboard show who's
     online right now with zero owner intervention: the owner's machine
@@ -111,11 +112,20 @@ def push_heartbeat(repo: str, token: str, name: str, my_shards: list, branch: st
     this file straight out of the (already-cloned) repo like everything
     else in contributions/. Call this on the same cadence as push_all() —
     a stale last_seen just means the dashboard will show that contributor
-    as offline after a few missed cycles, nothing more."""
+    as offline after a few missed cycles, nothing more.
+
+    shard_status (optional): one dict per shard — {"shard": idx, "status":
+    "running"/"exited (code N)", "fold_id": int|None, "seed": int|None,
+    "last_log": str|None} — this is what lets the dashboard answer "who is
+    training WHAT, is it alive, did it fail" instead of just "who's
+    online." session_started_at (optional): ISO timestamp this session's
+    shards were launched, for a "since when" display."""
     payload = {
         "name": name,
         "shards": list(my_shards),
         "last_seen": datetime.now(timezone.utc).isoformat(),
+        "shard_status": shard_status or [],
+        "session_started_at": session_started_at,
     }
     fd, tmp_path = tempfile.mkstemp(suffix=".json")
     try:
