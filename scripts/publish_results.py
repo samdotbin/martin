@@ -22,6 +22,7 @@ Usage:
     python scripts/publish_results.py --shared-folder ... --total-shards 12 --no-push  # commit only, don't push
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -29,6 +30,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config as cfg
+from claim_shards import _now_iso, gpu_status
 from merge_shard_results import merge
 
 
@@ -70,6 +72,18 @@ def main():
           + (f" ({n_overwritten} overwrote an existing file)" if n_overwritten else ""))
 
     root = cfg.PROJECT_ROOT
+
+    # GPU/session status (who's online, how long they've been running) is
+    # only computable with a real shared-folder layout (claims.json +
+    # shard{i}/ subfolders) -- not from an arbitrary list of shard_dirs.
+    if args.shared_folder:
+        status = gpu_status(args.shared_folder, args.total_shards)
+        status_path = os.path.join(root, "runs", "gpu_status.json")
+        os.makedirs(os.path.dirname(status_path), exist_ok=True)
+        with open(status_path, "w") as f:
+            json.dump({"generated_at": _now_iso(), "contributors": status}, f, indent=2)
+        n_online = sum(1 for r in status if r["online"])
+        print(f"gpu status: {n_online}/{len(status)} contributor(s) online -> wrote {status_path}")
     rc, out, err = _run(["git", "rev-parse", "--is-inside-work-tree"], cwd=root)
     if rc != 0:
         print(f"ERROR: {root} is not a git repo — run `git init` and add a remote first.")

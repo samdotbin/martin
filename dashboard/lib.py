@@ -41,6 +41,19 @@ def load_manifest_entries():
         return json.load(f)
 
 
+@st.cache_data(ttl="20s", show_spinner=False)
+def load_gpu_status():
+    """Contributor/session status snapshot — written by
+    scripts/publish_results.py (via claim_shards.gpu_status()) each time
+    the owner publishes. Not live for the hosted dashboard (only as fresh
+    as the last publish), same staleness as everything else here."""
+    path = os.path.join(config.RUNS_DIR, "gpu_status.json")
+    if not os.path.exists(path):
+        return {"generated_at": None, "contributors": []}
+    with open(path) as f:
+        return json.load(f)
+
+
 @st.cache_data(show_spinner="Loading price data...")
 def load_price_csv(pair: str) -> pd.DataFrame:
     return data_pipeline.load_raw_csv(pair)

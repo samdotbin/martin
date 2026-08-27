@@ -92,6 +92,7 @@ _ensure_data()
 
 page = st.navigation(
     [
+        st.Page("app_pages/contribute.py", title="Contribute", icon=":material/volunteer_activism:"),
         st.Page("app_pages/training.py", title="Training", icon=":material/model_training:"),
         st.Page("app_pages/performance.py", title="Performance", icon=":material/bar_chart:"),
         st.Page("app_pages/price_chart.py", title="Price chart", icon=":material/candlestick_chart:"),
