@@ -74,7 +74,7 @@ def main():
     root = cfg.PROJECT_ROOT
 
     # GPU/session status (who's online, how long they've been running) is
-    # only computable with a real shared-folder layout (claims.json +
+    # only computable with a real shared-folder layout (claims/shard{i}.json +
     # shard{i}/ subfolders) -- not from an arbitrary list of shard_dirs.
     if args.shared_folder:
         status = gpu_status(args.shared_folder, args.total_shards)

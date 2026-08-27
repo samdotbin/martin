@@ -1,106 +1,122 @@
 """
 scripts/claim_shards.py — self-service shard assignment for multi-contributor
 training. Each contributor calls claim() to grab N unclaimed shard indices
-out of TOTAL_SHARDS, recorded in a claims.json in the shared results folder
--- nobody needs to be manually handed a range by the project owner.
+out of TOTAL_SHARDS -- nobody needs to be manually handed a range by the
+project owner.
 
-Each claim record stores WHO claimed a shard and WHEN, so the dashboard's
-GPU-status view (see gpu_status()) can show how many contributors are
-active and how long each has been running -- not just the bare assignment.
-
-Not perfectly atomic (Drive has no real file-locking), but the
-write-then-reread-and-check-for-collision loop below closes almost all of
-that window, and the "contributors aren't training at the exact same
-moment" assumption this whole setup already relies on closes the rest.
+Each shard's claim lives in its OWN file (claims/shard{i}.json), not as an
+entry inside one shared claims.json. A single shared file needs a
+read-modify-write cycle to update, which on Drive (no real file locking)
+can lose updates if two sessions' reads/writes interleave badly -- this bit
+for real in production: two contributors both ended up claiming the same 4
+shards after enough Drive-folder churn (wrong shortcuts, remounts) put a
+stale/incomplete copy of the shared file in front of a writer, silently
+dropping an earlier legitimate claim. One file per shard sidesteps that
+whole class of bug: claiming shard N is "create claims/shardN.json, fail if
+it already exists" -- an atomic, unambiguous primitive, not a
+read-then-write race on a file everyone shares.
 """
 import datetime
 import json
 import os
-import time
 
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-def _claim_name(entry) -> str:
-    """Claim records are {"name": ..., "claimed_at": ...} — but tolerate a
-    bare name string too, in case an older claims.json (before this field
-    existed) is still in play."""
-    return entry["name"] if isinstance(entry, dict) else entry
+def _claims_dir(shared_folder: str) -> str:
+    d = os.path.join(shared_folder, "claims")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
-def _claim_time(entry):
-    return entry.get("claimed_at") if isinstance(entry, dict) else None
+def _claim_path(shared_folder: str, idx: int) -> str:
+    return os.path.join(_claims_dir(shared_folder), f"shard{idx}.json")
 
 
-def claim(shared_folder: str, total_shards: int, n_wanted: int, name: str, max_attempts: int = 5) -> list:
+def _read_claim(path: str):
+    """Returns {"name": ..., "claimed_at": ...} or None if missing/unreadable
+    (a corrupt or partially-written file is treated as absent, not as a
+    claim -- see the module docstring's note on the tradeoff this makes)."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) and "name" in data else None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _list_claims(shared_folder: str, total_shards: int) -> dict:
+    """{shard_index: {"name": ..., "claimed_at": ...}} for every currently
+    claimed shard in [0, total_shards)."""
+    out = {}
+    for i in range(total_shards):
+        entry = _read_claim(_claim_path(shared_folder, i))
+        if entry is not None:
+            out[i] = entry
+    return out
+
+
+def claim(shared_folder: str, total_shards: int, n_wanted: int, name: str) -> list:
     """Returns a sorted list of shard indices assigned to `name`. Idempotent
     across re-runs: if `name` already has claims (e.g. re-running this cell,
-    or resuming after a disconnect), those are kept (with their original
-    claimed_at) and only the shortfall (if any) is claimed fresh."""
+    or resuming after a disconnect), those are kept and only the shortfall
+    (if any) is claimed fresh."""
     if not name or not name.strip():
         raise ValueError("name must be a non-empty, identifiable string (e.g. your first name)")
 
-    os.makedirs(shared_folder, exist_ok=True)
-    claims_path = os.path.join(shared_folder, "claims.json")
+    claims = _list_claims(shared_folder, total_shards)
+    mine = sorted(i for i, entry in claims.items() if entry["name"] == name)
+    shortfall = n_wanted - len(mine)
+    if shortfall <= 0:
+        return mine[:n_wanted]
 
-    for attempt in range(max_attempts):
-        claims = {}
-        if os.path.exists(claims_path):
-            with open(claims_path) as f:
-                try:
-                    claims = json.load(f)
-                except json.JSONDecodeError:
-                    claims = {}
-
-        mine = sorted(int(i) for i, entry in claims.items() if _claim_name(entry) == name)
-        shortfall = n_wanted - len(mine)
+    newly_claimed = []
+    for i in (idx for idx in range(total_shards) if idx not in claims):
         if shortfall <= 0:
-            return mine[:n_wanted]
+            break
+        path = _claim_path(shared_folder, i)
+        try:
+            # 'x' = exclusive create: succeeds only if the file does NOT
+            # already exist, atomically. Whoever's create call actually
+            # lands first wins; the loser gets FileExistsError immediately
+            # and just tries the next free index -- no ambiguity, no lost
+            # updates, unlike read-modify-write on one shared file.
+            with open(path, "x") as f:
+                json.dump({"name": name, "claimed_at": _now_iso()}, f)
+        except FileExistsError:
+            continue  # someone else's create won the race on this index
+        newly_claimed.append(i)
+        shortfall -= 1
 
-        free = sorted(i for i in range(total_shards) if str(i) not in claims)
-        new_claims = free[:shortfall]
-        if not new_claims:
-            raise RuntimeError(
-                f"no free shards left (wanted {shortfall} more, 0 available out of "
-                f"{total_shards} total) -- ask the project owner to raise TOTAL_SHARDS, "
-                f"or check {claims_path} for stale claims to clear."
-            )
+    if shortfall > 0 and not newly_claimed:
+        raise RuntimeError(
+            f"no free shards left (wanted {n_wanted - len(mine)} more, 0 available out of "
+            f"{total_shards} total) -- ask the project owner to raise TOTAL_SHARDS, "
+            f"or check {_claims_dir(shared_folder)} for stale claims to clear."
+        )
 
-        claimed_at = _now_iso()
-        for i in new_claims:
-            claims[str(i)] = {"name": name, "claimed_at": claimed_at}
-        with open(claims_path, "w") as f:
-            json.dump(claims, f, indent=2, sort_keys=True)
-
-        # Reread after a short delay to catch a near-simultaneous claim by
-        # someone else on the same index.
-        time.sleep(0.5)
-        with open(claims_path) as f:
-            reread = json.load(f)
-        collisions = [i for i in new_claims if _claim_name(reread.get(str(i))) != name]
-        if not collisions:
-            return sorted(mine + new_claims)
-        print(f"shard claim collision on {collisions} (someone else grabbed it first) — retrying...")
-
-    raise RuntimeError(f"could not claim {n_wanted} shard(s) for '{name}' after {max_attempts} attempts — "
-                        f"check {claims_path} manually.")
+    return sorted(mine + newly_claimed)
 
 
 def release(shared_folder: str, name: str) -> list:
     """Frees every shard currently claimed by `name` (e.g. if you're done
     contributing, or claimed by mistake). Returns the released indices."""
-    claims_path = os.path.join(shared_folder, "claims.json")
-    if not os.path.exists(claims_path):
-        return []
-    with open(claims_path) as f:
-        claims = json.load(f)
-    released = sorted(int(i) for i, entry in claims.items() if _claim_name(entry) == name)
-    claims = {i: entry for i, entry in claims.items() if _claim_name(entry) != name}
-    with open(claims_path, "w") as f:
-        json.dump(claims, f, indent=2, sort_keys=True)
-    return released
+    claims_dir = _claims_dir(shared_folder)
+    released = []
+    for fname in os.listdir(claims_dir):
+        if not (fname.startswith("shard") and fname.endswith(".json")):
+            continue
+        path = os.path.join(claims_dir, fname)
+        entry = _read_claim(path)
+        if entry and entry["name"] == name:
+            idx = int(fname[len("shard"):-len(".json")])
+            os.remove(path)
+            released.append(idx)
+    return sorted(released)
 
 
 def gpu_status(shared_folder: str, total_shards: int, online_window_minutes: int = 20) -> list:
@@ -115,21 +131,14 @@ def gpu_status(shared_folder: str, total_shards: int, online_window_minutes: int
     one iteration's wall-clock time so a shard between checkpoints doesn't
     read as offline.
     """
-    claims_path = os.path.join(shared_folder, "claims.json")
-    claims = {}
-    if os.path.exists(claims_path):
-        with open(claims_path) as f:
-            try:
-                claims = json.load(f)
-            except json.JSONDecodeError:
-                claims = {}
+    claims = _list_claims(shared_folder, total_shards)
 
     by_name = {}
-    for idx_str, entry in claims.items():
-        name = _claim_name(entry)
+    for idx, entry in claims.items():
+        name = entry["name"]
         by_name.setdefault(name, {"name": name, "shards": [], "claimed_at": None})
-        by_name[name]["shards"].append(int(idx_str))
-        t = _claim_time(entry)
+        by_name[name]["shards"].append(idx)
+        t = entry.get("claimed_at")
         if t and (by_name[name]["claimed_at"] is None or t < by_name[name]["claimed_at"]):
             by_name[name]["claimed_at"] = t
 
