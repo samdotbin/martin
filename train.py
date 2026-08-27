@@ -11,6 +11,7 @@ multiple GPUs are genuinely available to spread folds across.
 import argparse
 import json
 import os
+import re
 
 import config as cfg
 import data_pipeline
@@ -18,6 +19,33 @@ import fold_runner
 import utils
 
 logger = utils.get_logger(__name__)
+
+_CHECKPOINT_NAME_RE = re.compile(r"^fold_(\d+)_seed_(-?\d+)_(?:latest|best)(?:_regime)?\.")
+
+
+def _cleanup_stale_shard_checkpoints(assigned_combos):
+    """When sharding, this shard's checkpoint directory should only ever
+    hold files for the (fold_id, seed) combos it's CURRENTLY assigned.
+    Round-robin assignment shifts whenever N_FOLDS/SEEDS/shard-count
+    changes (e.g. adding a seed) — a file from a previous layout can be
+    left behind in the same directory under a config that no longer
+    assigns it here. Left alone, merge_shard_results.merge() (and the
+    dashboard) reads it as live progress for a combo nothing is actually
+    training. Only ever removes files matching this shard's own
+    checkpoint naming pattern for a combo outside the current assignment —
+    never touches anything else in the directory."""
+    assigned = {(fold_id, seed) for fold_id, seed in assigned_combos}
+    if not os.path.isdir(cfg.CHECKPOINT_DIR):
+        return
+    for fname in os.listdir(cfg.CHECKPOINT_DIR):
+        m = _CHECKPOINT_NAME_RE.match(fname)
+        if not m:
+            continue
+        combo = (int(m.group(1)), int(m.group(2)))
+        if combo not in assigned:
+            path = os.path.join(cfg.CHECKPOINT_DIR, fname)
+            os.remove(path)
+            logger.info(f"removed stale checkpoint from a previous shard layout: {fname}")
 
 
 def main():
@@ -96,6 +124,14 @@ def main():
         all_combos = all_combos[args.shard_index::args.shard_count]
         logger.info(f"shard {args.shard_index}/{args.shard_count}: running {len(all_combos)} of "
                     f"{len(fold_configs) * len(seeds)} fold/seed combos")
+        # Only safe when the fold universe is the FULL default sweep --
+        # --folds/--n-folds deliberately narrows scope for this one
+        # invocation (e.g. smoke-testing a single fold), which does NOT
+        # mean every other fold's checkpoints are stale.
+        if not args.folds and args.n_folds == cfg.N_FOLDS:
+            _cleanup_stale_shard_checkpoints(
+                (fold_cfg["fold_id"], seed) for fold_cfg, seed in all_combos
+            )
 
     all_results = []
     for fold_cfg, seed in all_combos:
