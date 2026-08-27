@@ -102,7 +102,11 @@ if _n_new:
 
 page = st.navigation(
     [
-        st.Page("app_pages/arena.py", title="Arena", icon=":material/emoji_events:"),
+        # arena.py temporarily unregistered — crashes on Streamlit Cloud with
+        # a redacted AttributeError at its sharpe_chart alt.Axis(...) call
+        # (dashboard/app_pages/arena.py:117) that didn't reproduce locally
+        # against the same altair version. Re-add once root-caused from the
+        # unredacted Streamlit Cloud "Manage app" logs.
         st.Page("app_pages/contribute.py", title="Contribute", icon=":material/volunteer_activism:"),
         st.Page("app_pages/training.py", title="Training", icon=":material/model_training:"),
         st.Page("app_pages/performance.py", title="Performance", icon=":material/bar_chart:"),

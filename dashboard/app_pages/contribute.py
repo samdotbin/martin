@@ -41,18 +41,15 @@ st.markdown(
    remembered for next time, and the notebook clones the code, downloads
    the historical price data, claims 4 free training slots automatically,
    and starts training.
-5. Leave the tab open. Your progress shows up on the **Arena** and
-   **Training** tabs here as it goes. Closing the tab stops your shards —
-   that's fine, `--resume` picks them back up if you come back, or someone
-   else's claim eventually reassigns them if you don't (see the notebook
-   for how to release shards you're done with).
+5. Leave the tab open. Your progress shows up on the **Training** tab here
+   as it goes. Closing the tab stops your shards — that's fine, `--resume`
+   picks them back up if you come back, or someone else's claim eventually
+   reassigns them if you don't (see the notebook for how to release shards
+   you're done with).
 
 Free Colab GPUs disconnect after a while regardless of what you do — normal,
 not something to fix. Just re-run the notebook (`Runtime -> Run all`) when
 you're back — same generated name, same shards.
-
-While you wait: check the **Arena** tab — leaderboard, charts, and a
-"Beat the AI" day-trading challenge to pass the time.
 """
 )
 
