@@ -207,6 +207,18 @@ st.caption(
     "can write anywhere in the repo, not just contributions/ — only share "
     "the folder holding it with people you'd trust with that."
 )
+st.caption(
+    "Optional: Telegram status pings (every 60s per contributor, much "
+    "faster than the GitHub push above) — create a bot via @BotFather, "
+    "add it to a group with your contributors, send it one message there, "
+    "then GET https://api.telegram.org/bot<token>/getUpdates to read that "
+    "chat's id. Save the bot token as plain text at "
+    "SHARED_FOLDER/telegram_bot_token.txt and the chat id at "
+    "SHARED_FOLDER/telegram_chat_id.txt — same one-time-setup, "
+    "zero-per-contributor-effort pattern as the GitHub token. Never paste "
+    "a bot token into a chat with anyone, including this dashboard or an "
+    "AI assistant — save it straight to the file."
+)
 
 st.divider()
 st.subheader("Merge shard results")
