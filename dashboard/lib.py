@@ -54,6 +54,43 @@ def load_gpu_status():
         return json.load(f)
 
 
+@st.cache_data(ttl="30s", show_spinner=False)
+def merge_contributions() -> int:
+    """Contributors' Colab sessions push their own shard results directly
+    to contributions/{name}/shard{i}/ via scripts/push_to_github.py — no
+    owner publish step needed. Folds those into the local checkpoints/+runs/
+    every other function here already reads from, reusing
+    merge_shard_results.merge() unchanged (a contribution dir has the exact
+    same checkpoints/+runs/ layout as any other shard dir).
+
+    Runs once per app boot (called from streamlit_app.py) and re-runs on
+    any cache miss after the TTL — covers both the common case (Streamlit
+    Community Cloud restarts fresh on every push that lands here) and a
+    long-lived session that doesn't happen to restart between pushes.
+    Returns how many checkpoint files were copied (0 if nothing new).
+    """
+    contributions_dir = os.path.join(config.PROJECT_ROOT, "contributions")
+    if not os.path.isdir(contributions_dir):
+        return 0
+
+    shard_dirs = []
+    for name in os.listdir(contributions_dir):
+        name_dir = os.path.join(contributions_dir, name)
+        if not os.path.isdir(name_dir):
+            continue
+        for shard_name in os.listdir(name_dir):
+            shard_dir = os.path.join(name_dir, shard_name)
+            if os.path.isdir(shard_dir):
+                shard_dirs.append(shard_dir)
+
+    if not shard_dirs:
+        return 0
+
+    from scripts.merge_shard_results import merge
+    _n_entries, n_copied, _n_overwritten = merge(shard_dirs)
+    return n_copied
+
+
 @st.cache_data(show_spinner="Loading price data...")
 def load_price_csv(pair: str) -> pd.DataFrame:
     return data_pipeline.load_raw_csv(pair)

@@ -90,6 +90,16 @@ def _ensure_data():
 
 _ensure_data()
 
+# Fold in any contributions/{name}/shard{i}/ pushed directly by a Colab
+# session (see scripts/push_to_github.py) — no owner publish step needed;
+# a contributor's results show up here once their push lands and this app
+# next boots or reruns past the cache TTL.
+import lib as _lib  # noqa: E402  (after _ensure_data(), which needs to run before any lib import touches data/raw)
+
+_n_new = _lib.merge_contributions()
+if _n_new:
+    st.toast(f"Picked up {_n_new} new checkpoint file(s) from contributors.", icon=":material/sync:")
+
 page = st.navigation(
     [
         st.Page("app_pages/contribute.py", title="Contribute", icon=":material/volunteer_activism:"),

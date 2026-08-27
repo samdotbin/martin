@@ -195,6 +195,20 @@ with col2:
         st.dataframe(files_df, hide_index=True, width="stretch", height=320)
 
 st.divider()
+st.subheader("Contributors auto-publish — one-time setup")
+st.caption(
+    "Contributors' Colab sessions push their own results straight to GitHub "
+    "(contributions/{name}/ — see scripts/push_to_github.py), so this "
+    "dashboard picks them up with no manual step on your part. Needs a "
+    "fine-grained GitHub PAT (Contents: read and write, scoped to just this "
+    "repo) saved as plain text at SHARED_FOLDER/github_token.txt — create "
+    "it once and every contributor's session finds it automatically. Note: "
+    "GitHub's PAT scopes are repo-wide, not path-restricted, so this token "
+    "can write anywhere in the repo, not just contributions/ — only share "
+    "the folder holding it with people you'd trust with that."
+)
+
+st.divider()
 st.subheader("Merge shard results")
 st.caption(
     "After downloading multiple Colab shards' runs/+checkpoints/ folders "
