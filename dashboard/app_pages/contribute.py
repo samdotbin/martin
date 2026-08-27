@@ -5,6 +5,7 @@ from lib import get_training_progress, load_gpu_status
 
 GITHUB_REPO = "samdotbin/martin"
 COLAB_URL = f"https://colab.research.google.com/github/{GITHUB_REPO}/blob/master/colab_train.ipynb"
+SHARED_DRIVE_URL = "https://drive.google.com/drive/folders/1KKSoBLl8CurDqFtUz3UM9h_9fmDFDiqe?usp=sharing"
 
 st.markdown(
     f"This project trains a multi-pair FX trading policy via a walk-forward "
@@ -28,23 +29,30 @@ st.divider()
 st.subheader("How to contribute your GPU")
 st.markdown(
     f"""
-1. **Open the notebook directly from GitHub** — no download, no upload, no zip:
+1. **Get link access to the shared results folder** (one time only):
+   [Open the shared Drive folder]({SHARED_DRIVE_URL}) and click
+   **Add shortcut to Drive**. This is what lets your session write results
+   somewhere everyone else's session can also see.
+2. **Open the notebook directly from GitHub** — no download, no upload, no zip:
    [Open in Colab]({COLAB_URL})
-2. `Runtime -> Change runtime type -> GPU`
-3. In the config cell, set `MY_NAME` to anything that identifies you, and
-   ask the project owner for the `SHARED_FOLDER` path (a Drive folder
-   they'll share with you — Editor access needed).
-4. `Runtime -> Run all`. The notebook clones the code, downloads the
-   historical price data, claims 4 free training slots for you
-   automatically, and starts training — no manual setup beyond step 3.
-5. Leave the tab open. Progress shows up here (and in the notebook's own
-   monitoring cell) as it goes. Closing the tab stops your shards — that's
-   fine, `--resume` picks them back up if you come back, or someone else's
-   claim eventually reassigns them if you don't (see the notebook for how
-   to release shards you're done with).
+3. `Runtime -> Change runtime type -> GPU`
+4. `Runtime -> Run all`. First run asks you to allow Drive access — accept
+   it. Nothing else to fill in: your name is generated for you and
+   remembered for next time, and the notebook clones the code, downloads
+   the historical price data, claims 4 free training slots automatically,
+   and starts training.
+5. Leave the tab open. Your progress shows up on the **Arena** and
+   **Training** tabs here as it goes. Closing the tab stops your shards —
+   that's fine, `--resume` picks them back up if you come back, or someone
+   else's claim eventually reassigns them if you don't (see the notebook
+   for how to release shards you're done with).
 
 Free Colab GPUs disconnect after a while regardless of what you do — normal,
-not something to fix. Just re-run the notebook when you're back.
+not something to fix. Just re-run the notebook (`Runtime -> Run all`) when
+you're back — same generated name, same shards.
+
+While you wait: check the **Arena** tab — leaderboard, charts, and a
+"Beat the AI" day-trading challenge to pass the time.
 """
 )
 

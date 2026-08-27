@@ -389,6 +389,57 @@ def list_checkpoint_files():
     return pd.DataFrame(rows).sort_values("Modified", ascending=False).reset_index(drop=True)
 
 
+def get_contributor_leaderboard() -> pd.DataFrame:
+    """Ranks contributors by checkpoint files pushed to their own
+    contributions/{name}/ subtree — a simple, always-available proxy for how
+    much training work each person's sessions have produced, since
+    RUN_MANIFEST.json entries don't carry contributor attribution. Combined
+    with load_gpu_status() for online/shards/duration."""
+    contributions_dir = os.path.join(config.PROJECT_ROOT, "contributions")
+    status = load_gpu_status()
+    online_by_name = {c["name"]: c for c in status["contributors"]}
+
+    counts = {}
+    if os.path.isdir(contributions_dir):
+        for name in os.listdir(contributions_dir):
+            name_dir = os.path.join(contributions_dir, name)
+            if not os.path.isdir(name_dir):
+                continue
+            n = 0
+            for _root, _dirs, files in os.walk(name_dir):
+                n += sum(1 for f in files if f.endswith(".pt"))
+            counts[name] = n
+
+    columns = ["Name", "Checkpoints pushed", "Online", "Shards", "Running for (min)"]
+    all_names = set(counts) | set(online_by_name)
+    if not all_names:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for name in all_names:
+        c = online_by_name.get(name)
+        rows.append({
+            "Name": name,
+            "Checkpoints pushed": counts.get(name, 0),
+            "Online": bool(c and c["online"]),
+            "Shards": ", ".join(str(s) for s in c["shards"]) if c else "-",
+            "Running for (min)": c["duration_minutes"] if c and c["duration_minutes"] is not None else None,
+        })
+    return pd.DataFrame(rows).sort_values(
+        ["Checkpoints pushed", "Online"], ascending=[False, False]
+    ).reset_index(drop=True)
+
+
+def get_best_run():
+    """The single (fold_id, seed) manifest entry with the highest test
+    Sharpe so far, or None if nothing has finished yet — used to headline
+    the Arena page's Charts tab with the system's best result to date."""
+    entries = load_manifest_entries()
+    if not entries:
+        return None
+    return max(entries, key=lambda e: e["test_metrics"]["sharpe"])
+
+
 def get_training_config_summary() -> dict:
     """Read-only snapshot of the config.py knobs that actually affect a
     training run — so you can sanity-check what's running without opening
