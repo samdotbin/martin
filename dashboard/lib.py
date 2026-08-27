@@ -159,6 +159,43 @@ def get_test_day_starts(fold_id: int):
     return all_day_starts[mask]
 
 
+@st.cache_data(show_spinner=False)
+def _mean_test_regime_embedding(fold_id: int, seed: int):
+    """Same train-only-fit regime embedding fold_runner.py computes for the
+    test split: transform (never re-fit) the test window, mean-pool it.
+    Shared by replay_day() and new_challenge_env() so a human's challenge
+    run sees the IDENTICAL regime context the agent's replay did."""
+    _model, regime_extractor, _extra, pair_currency_map = load_model_and_regime(fold_id, seed)
+    edge_features, timestamps = load_edge_features_and_timestamps()
+    fold_cfg = get_fold_configs()[fold_id]
+
+    test_feats, _ = data_pipeline.load_fold(timestamps, edge_features, fold_cfg["test_start"], fold_cfg["test_end"])
+    n_pairs, n_feat = test_feats.shape[1], test_feats.shape[2]
+    flat_test = test_feats.reshape(len(test_feats), n_pairs * n_feat)
+    test_loadings, test_clusters = regime_extractor.transform(flat_test)
+    test_embed = regime_extractor.embedding(test_loadings, test_clusters)
+    mean_test_embed = test_embed.mean(axis=0) if len(test_embed) else np.zeros(test_embed.shape[-1])
+    return mean_test_embed, pair_currency_map
+
+
+def new_challenge_env(fold_id: int, seed: int, day_start_idx: int):
+    """A fresh TradingEnv for the Arena 'Beat the AI' challenge, configured
+    exactly like the trained policy's replay_day() (same regime embedding,
+    same day window) — so a human's chosen bucket_indices go through
+    env.step() exactly as the agent's would: same vol-scaled lot sizing,
+    same safety layer (get_action_mask() reflects the SAME rules), same 28
+    pairs. NOT cached: this returns a live, mutable object the caller steps
+    bar by bar and holds in st.session_state for one challenge's duration."""
+    edge_features, timestamps = load_edge_features_and_timestamps()
+    mean_test_embed, pair_currency_map = _mean_test_regime_embedding(fold_id, seed)
+    env = env_module.TradingEnv(
+        edge_features, timestamps, np.array([day_start_idx]), pair_currency_map, cfg=config
+    )
+    env.set_regime(mean_test_embed)
+    env.reset(day_start_idx)
+    return env
+
+
 @st.cache_data(show_spinner="Replaying policy on the selected day...")
 def replay_day(fold_id: int, seed: int, day_start_idx: int) -> pd.DataFrame:
     """
@@ -169,19 +206,10 @@ def replay_day(fold_id: int, seed: int, day_start_idx: int) -> pd.DataFrame:
     per-bar detail instead of collapsing to aggregate metrics — eval.py
     itself is untouched (this lives only here, for visualization).
     """
-    model, regime_extractor, extra, pair_currency_map = load_model_and_regime(fold_id, seed)
+    model, _regime_extractor, _extra, _pair_currency_map = load_model_and_regime(fold_id, seed)
     edge_features, timestamps = load_edge_features_and_timestamps()
-    fold_cfg = get_fold_configs()[fold_id]
 
-    # Same train-only-fit regime embedding fold_runner.py computes for the
-    # test split: transform (never re-fit) the test window, mean-pool it.
-    test_feats, _ = data_pipeline.load_fold(timestamps, edge_features, fold_cfg["test_start"], fold_cfg["test_end"])
-    n_pairs, n_feat = test_feats.shape[1], test_feats.shape[2]
-    flat_test = test_feats.reshape(len(test_feats), n_pairs * n_feat)
-    test_loadings, test_clusters = regime_extractor.transform(flat_test)
-    test_embed = regime_extractor.embedding(test_loadings, test_clusters)
-    mean_test_embed = test_embed.mean(axis=0) if len(test_embed) else np.zeros(test_embed.shape[-1])
-
+    mean_test_embed, pair_currency_map = _mean_test_regime_embedding(fold_id, seed)
     env = env_module.TradingEnv(
         edge_features, timestamps, np.array([day_start_idx]), pair_currency_map, cfg=config
     )
