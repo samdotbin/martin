@@ -109,11 +109,16 @@ def get_shard_activity_table() -> pd.DataFrame:
     rows = []
     for hb in heartbeats:
         for s in hb.get("shard_status", []):
+            fold_id = s.get("fold_id")
+            seed = s.get("seed")
             rows.append({
                 "Contributor": hb["name"],
                 "Shard": s.get("shard"),
-                "Fold": s.get("fold_id") if s.get("fold_id") is not None else "-",
-                "Seed": s.get("seed") if s.get("seed") is not None else "-",
+                # Stringified, not left as int|"-" — a column mixing raw ints
+                # with a "-" placeholder fails pyarrow's Arrow conversion
+                # (Streamlit's st.dataframe needs one consistent dtype).
+                "Fold": str(fold_id) if fold_id is not None else "-",
+                "Seed": str(seed) if seed is not None else "-",
                 "Status": s.get("status", "-"),
                 "Last log line": s.get("last_log") or "-",
                 "Since": hb.get("session_started_at") or "-",
