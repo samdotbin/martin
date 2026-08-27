@@ -109,6 +109,10 @@ if start_clicked:
             [sys.executable, "train.py", "--resume", "--iterations", str(iterations)],
             cwd=config.PROJECT_ROOT,
             stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
+            # Own process group — a SIGINT to this Streamlit process (e.g.
+            # Ctrl+C in the terminal running it) shouldn't take training
+            # down with it. No-op on Windows, real isolation on Linux/Mac.
+            start_new_session=True,
         )
         new_procs.append({"idx": 0, "proc": proc, "log": log_path})
     else:
@@ -132,6 +136,7 @@ if start_clicked:
                  "--shard-index", str(idx), "--shard-count", str(n_parallel)],
                 cwd=config.PROJECT_ROOT, env=env,
                 stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
             new_procs.append({"idx": idx, "proc": proc, "log": log_path, "shard_dir": shard_dir})
     st.session_state.local_training_procs = new_procs
