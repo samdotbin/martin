@@ -5,12 +5,32 @@ import json
 import logging
 import os
 import random
+import tempfile
 from datetime import datetime, timezone
 
 import numpy as np
 import torch
 
 import config
+
+
+def _atomic_write(path, write_fn):
+    """Writes via a temp file in the same directory + os.replace(), so a
+    concurrent reader (the notebook's background auto-push thread reads
+    these same checkpoint files every few minutes, on a Drive-mounted path
+    where writes are slower than local disk) never sees a partially-written
+    file. os.replace() is atomic on both POSIX and Windows, same filesystem
+    guaranteed by using the target's own directory for the temp file."""
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".tmp_")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            write_fn(f)
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 def set_seed(seed: int) -> None:
@@ -52,9 +72,8 @@ def save_checkpoint(policy_state_dict, regime_model, fold_id, seed, out_dir=None
     regime_path = os.path.join(out_dir, f"{base}_regime.pkl")
 
     payload = {"policy_state_dict": policy_state_dict, "extra": extra or {}}
-    torch.save(payload, policy_path)
-    with open(regime_path, "wb") as f:
-        pickle.dump(regime_model, f)
+    _atomic_write(policy_path, lambda f: torch.save(payload, f))
+    _atomic_write(regime_path, lambda f: pickle.dump(regime_model, f))
 
     return {"policy_path": policy_path, "regime_path": regime_path}
 
@@ -159,7 +178,7 @@ def save_latest_checkpoint(model, optimizer, iteration, best_val_sharpe, best_st
         "rng_state": _capture_rng_state(lane_envs),
         "extra": extra or {},
     }
-    torch.save(payload, path)
+    _atomic_write(path, lambda f: torch.save(payload, f))
     return path
 
 

@@ -53,6 +53,14 @@ def push_file(repo: str, token: str, repo_path: str, local_path: str, branch: st
     get_url = f"https://api.github.com/repos/{repo}/contents/{repo_path}?ref={branch}"
     status, existing = _api_request("GET", get_url, token)
     sha = existing["sha"] if status == 200 else None
+    if status == 200:
+        # GitHub only inlines base64 "content" for files under ~1MB; larger
+        # files omit it, so there's nothing cheap to compare against and we
+        # fall through to a PUT as before. GitHub also wraps the inlined
+        # value with embedded newlines every 60 chars.
+        existing_content = existing.get("content")
+        if existing_content is not None and existing_content.replace("\n", "") == content_b64:
+            return False
 
     payload = {"message": f"contribute: update {repo_path}", "content": content_b64, "branch": branch}
     if sha:

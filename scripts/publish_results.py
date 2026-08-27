@@ -95,11 +95,18 @@ def main():
     # false positive on JSON merge()'s always-\n output) yet stage to
     # something byte-identical to HEAD, leaving nothing for commit to do.
     rc, staged, err = _run(["git", "diff", "--cached", "--name-only", "--", "checkpoints", "runs"], cwd=root)
-    if not staged.strip():
+    staged_files = [f for f in staged.strip().splitlines() if f]
+    # gpu_status.json's own generated_at timestamp (written above, every
+    # run) always differs from HEAD, so its presence alone doesn't mean any
+    # real training progress happened — exclude it from the "is there
+    # anything to publish" decision. It still rides along in the commit
+    # below whenever something else DID change.
+    meaningful = [f for f in staged_files if f != "runs/gpu_status.json"]
+    if not meaningful:
         print("Nothing changed in checkpoints/ or runs/ since the last publish — nothing to commit.")
         return
 
-    n_files_changed = len(staged.strip().splitlines())
+    n_files_changed = len(staged_files)
     commit_msg = f"Publish results: {n_entries} fold/seed combos, {n_files_changed} file(s) changed"
     # Scoped to checkpoints/runs explicitly — never sweep in unrelated
     # staged changes from something else going on in the working tree.

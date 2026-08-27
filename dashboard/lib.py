@@ -56,14 +56,15 @@ def load_gpu_status():
 
 
 @st.cache_data(ttl="20s", show_spinner=False)
-def load_contributor_heartbeats(online_window_minutes: int = 12) -> list:
+def load_contributor_heartbeats(online_window_minutes: int = 4) -> list:
     """Reads contributions/{name}/heartbeat.json directly out of the cloned
     repo — each contributor's Colab session pushes its own (see
-    scripts/push_to_github.py::push_heartbeat(), called from the auto-push
-    cell on the same 5-minute cadence as the checkpoint push). Unlike
-    load_gpu_status(), this needs NO owner-side step (no publish_results.py
-    run from a machine with Drive access) — the hosted dashboard sees
-    contributors the moment their session's first heartbeat lands.
+    scripts/push_to_github.py::push_heartbeat(), called from the notebook's
+    fast status loop on a 60-second cadence, decoupled from the slower
+    5-minute checkpoint push). Unlike load_gpu_status(), this needs NO
+    owner-side step (no publish_results.py run from a machine with Drive
+    access) — the hosted dashboard sees contributors the moment their
+    session's first heartbeat lands.
     online_window_minutes should stay a bit above the push cadence so one
     missed cycle (a slow GitHub API call, a brief disconnect) doesn't flip
     someone to 'offline' prematurely."""
@@ -216,6 +217,20 @@ def _mean_test_regime_embedding(fold_id: int, seed: int):
     return mean_test_embed, pair_currency_map
 
 
+def _build_replay_env(fold_id: int, seed: int, day_start_idx: int):
+    """A fresh TradingEnv configured for one (fold_id, seed)'s test-window
+    regime and day — shared by replay_day() and new_challenge_env() so the
+    exact same construction (regime embedding, day window) can't drift
+    between the two. NOT cached: returns a live, mutable object."""
+    edge_features, timestamps = load_edge_features_and_timestamps()
+    mean_test_embed, pair_currency_map = _mean_test_regime_embedding(fold_id, seed)
+    env = env_module.TradingEnv(
+        edge_features, timestamps, np.array([day_start_idx]), pair_currency_map, cfg=config
+    )
+    env.set_regime(mean_test_embed)
+    return env
+
+
 def new_challenge_env(fold_id: int, seed: int, day_start_idx: int):
     """A fresh TradingEnv for the Arena 'Beat the AI' challenge, configured
     exactly like the trained policy's replay_day() (same regime embedding,
@@ -224,12 +239,7 @@ def new_challenge_env(fold_id: int, seed: int, day_start_idx: int):
     same safety layer (get_action_mask() reflects the SAME rules), same 28
     pairs. NOT cached: this returns a live, mutable object the caller steps
     bar by bar and holds in st.session_state for one challenge's duration."""
-    edge_features, timestamps = load_edge_features_and_timestamps()
-    mean_test_embed, pair_currency_map = _mean_test_regime_embedding(fold_id, seed)
-    env = env_module.TradingEnv(
-        edge_features, timestamps, np.array([day_start_idx]), pair_currency_map, cfg=config
-    )
-    env.set_regime(mean_test_embed)
+    env = _build_replay_env(fold_id, seed, day_start_idx)
     env.reset(day_start_idx)
     return env
 
@@ -245,13 +255,7 @@ def replay_day(fold_id: int, seed: int, day_start_idx: int) -> pd.DataFrame:
     itself is untouched (this lives only here, for visualization).
     """
     model, _regime_extractor, _extra, _pair_currency_map = load_model_and_regime(fold_id, seed)
-    edge_features, timestamps = load_edge_features_and_timestamps()
-
-    mean_test_embed, pair_currency_map = _mean_test_regime_embedding(fold_id, seed)
-    env = env_module.TradingEnv(
-        edge_features, timestamps, np.array([day_start_idx]), pair_currency_map, cfg=config
-    )
-    env.set_regime(mean_test_embed)
+    env = _build_replay_env(fold_id, seed, day_start_idx)
 
     device = next(model.parameters()).device
     state = env.reset(day_start_idx)
@@ -281,7 +285,7 @@ def replay_day(fold_id: int, seed: int, day_start_idx: int) -> pd.DataFrame:
             action = out["probs"][0].argmax(dim=-1)  # deterministic replay
 
             idx = env._current_bar_absolute_idx()
-            ts = pd.Timestamp(timestamps[idx])
+            ts = pd.Timestamp(env.timestamps[idx])
 
             next_state, reward, done, info = env.step(action.cpu().numpy())
 
@@ -299,7 +303,7 @@ def replay_day(fold_id: int, seed: int, day_start_idx: int) -> pd.DataFrame:
             # the safety layer's exposure cap actually enforces (§9), mirrors
             # env._get_state()'s currency_exposure computation.
             currency_exposure = np.zeros(len(currency_names))
-            for i, (base_idx, quote_idx) in enumerate(pair_currency_map):
+            for i, (base_idx, quote_idx) in enumerate(env.pair_currency_map):
                 currency_exposure[base_idx] += env.positions[i]
                 currency_exposure[quote_idx] -= env.positions[i]
             for i, currency in enumerate(currency_names):
@@ -455,15 +459,18 @@ def list_checkpoint_files():
     return pd.DataFrame(rows).sort_values("Modified", ascending=False).reset_index(drop=True)
 
 
+@st.cache_data(ttl="20s", show_spinner=False)
 def get_contributor_leaderboard() -> pd.DataFrame:
     """Ranks contributors by checkpoint files pushed to their own
     contributions/{name}/ subtree — a simple, always-available proxy for how
     much training work each person's sessions have produced, since
     RUN_MANIFEST.json entries don't carry contributor attribution. Combined
-    with load_gpu_status() for online/shards/duration."""
+    with load_contributor_heartbeats() for online/shards/last-seen — NOT
+    load_gpu_status(), which needs an owner-run publish_results.py step
+    that the hosted dashboard has no way to trigger (see fb79b64)."""
     contributions_dir = os.path.join(config.PROJECT_ROOT, "contributions")
-    status = load_gpu_status()
-    online_by_name = {c["name"]: c for c in status["contributors"]}
+    heartbeats = load_contributor_heartbeats()
+    by_name = {c["name"]: c for c in heartbeats}
 
     counts = {}
     if os.path.isdir(contributions_dir):
@@ -476,20 +483,25 @@ def get_contributor_leaderboard() -> pd.DataFrame:
                 n += sum(1 for f in files if f.endswith(".pt"))
             counts[name] = n
 
-    columns = ["Name", "Checkpoints pushed", "Online", "Shards", "Running for (min)"]
-    all_names = set(counts) | set(online_by_name)
+    columns = ["Name", "Checkpoints pushed", "Online", "Shards", "Last seen"]
+    all_names = set(counts) | set(by_name)
     if not all_names:
         return pd.DataFrame(columns=columns)
 
+    now = datetime.now(timezone.utc)
     rows = []
     for name in all_names:
-        c = online_by_name.get(name)
+        c = by_name.get(name)
+        last_seen = "-"
+        if c:
+            mins_ago = (now - datetime.fromisoformat(c["last_seen"])).total_seconds() / 60
+            last_seen = "just now" if mins_ago < 1 else f"{mins_ago:.0f} min ago"
         rows.append({
             "Name": name,
             "Checkpoints pushed": counts.get(name, 0),
             "Online": bool(c and c["online"]),
             "Shards": ", ".join(str(s) for s in c["shards"]) if c else "-",
-            "Running for (min)": c["duration_minutes"] if c and c["duration_minutes"] is not None else None,
+            "Last seen": last_seen,
         })
     return pd.DataFrame(rows).sort_values(
         ["Checkpoints pushed", "Online"], ascending=[False, False]

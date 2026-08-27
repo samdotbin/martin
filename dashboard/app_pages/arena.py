@@ -48,10 +48,7 @@ with tab_leaderboard:
             MEDALS[i] if i < len(MEDALS) else str(i + 1) for i in range(len(display))
         ]
         display["Status"] = display["Online"].map({True: "🟢 Online", False: "⚪ Offline"})
-        display["Running for"] = display["Running for (min)"].map(
-            lambda v: "-" if pd.isna(v) else f"{v:.0f} min"
-        )
-        display = display[["Rank", "Name", "Checkpoints pushed", "Status", "Shards", "Running for"]]
+        display = display[["Rank", "Name", "Checkpoints pushed", "Status", "Shards", "Last seen"]]
 
         def _row_color(row):
             color = "background-color: rgba(255, 215, 0, 0.15)" if row["Rank"] in MEDALS else ""

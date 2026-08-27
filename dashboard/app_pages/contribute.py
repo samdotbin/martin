@@ -3,18 +3,19 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
-from lib import get_training_progress, load_contributor_heartbeats
+from lib import config, get_training_progress, load_contributor_heartbeats
 
 GITHUB_REPO = "samdotbin/martin"
 COLAB_URL = f"https://colab.research.google.com/github/{GITHUB_REPO}/blob/master/colab_train.ipynb"
 SHARED_DRIVE_URL = "https://drive.google.com/drive/folders/1KKSoBLl8CurDqFtUz3UM9h_9fmDFDiqe?usp=sharing"
+N_COMBOS = config.N_FOLDS * len(config.SEEDS)
 
 st.markdown(
     f"This project trains a multi-pair FX trading policy via a walk-forward "
-    f"sweep — 12 folds x 4 seeds, 48 fold/seed combos total, each needing "
-    f"real GPU time. Training is split into shards contributors can run in "
-    f"parallel on their own Colab (free or paid) — the more GPUs helping, "
-    f"the faster the sweep finishes."
+    f"sweep — {config.N_FOLDS} folds x {len(config.SEEDS)} seeds, {N_COMBOS} "
+    f"fold/seed combos total, each needing real GPU time. Training is split "
+    f"into shards contributors can run in parallel on their own Colab (free "
+    f"or paid) — the more GPUs helping, the faster the sweep finishes."
 )
 
 heartbeats = load_contributor_heartbeats()
@@ -54,9 +55,9 @@ Free Colab GPUs disconnect after a while regardless of what you do — normal,
 not something to fix. Just re-run the notebook (`Runtime -> Run all`) when
 you're back — same generated name, same shards.
 
-New here? You won't show up below until your notebook's background
-auto-push cell has run at least once (every 5 minutes) — give it a few
-minutes after `Run all`.
+New here? You won't show up below until your notebook's background status
+loop has run at least once (every 60 seconds) — give it a minute or two
+after `Run all`.
 """
 )
 
